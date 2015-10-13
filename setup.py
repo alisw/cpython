@@ -63,7 +63,7 @@ def is_macosx_sdk_path(path):
                 or path.startswith('/System/')
                 or path.startswith('/Library/') )
 
-def find_file(filename, std_dirs, paths):
+def find_file(filename, std_dirs, paths, prefer_custom=False):
     """Searches for the directory where a given file is located,
     and returns a possibly-empty list of additional directories, or None
     if the file couldn't be found at all.
@@ -81,13 +81,15 @@ def find_file(filename, std_dirs, paths):
         sysroot = macosx_sdk_root()
 
     # Check the standard locations
-    for dir in std_dirs:
-        f = os.path.join(dir, filename)
+    if not prefer_custom:
+        for dir in std_dirs:
+            f = os.path.join(dir, filename)
 
-        if host_platform == 'darwin' and is_macosx_sdk_path(dir):
-            f = os.path.join(sysroot, dir[1:], filename)
+            if host_platform == 'darwin' and is_macosx_sdk_path(dir):
+                f = os.path.join(sysroot, dir[1:], filename)
 
-        if os.path.exists(f): return []
+            if os.path.exists(f):
+                return []
 
     # Check the additional directories
     for dir in paths:
@@ -100,7 +102,7 @@ def find_file(filename, std_dirs, paths):
             return [dir]
 
     # Not found anywhere
-    return None
+    return None if not prefer_custom else find_file(filename, std_dirs, paths)
 
 def find_library_file(compiler, libname, std_dirs, paths):
     result = compiler.find_library_file(std_dirs + paths, libname)
@@ -788,13 +790,14 @@ class PyBuildExt(build_ext):
                                depends=['socketmodule.h'],
                                libraries=math_libs) )
         # Detect SSL support for the socket module (via _ssl)
-        search_for_ssl_incs_in = [
-                              '/usr/local/ssl/include',
-                              '/usr/contrib/ssl/include/'
-                             ]
-        ssl_incs = find_file('openssl/ssl.h', inc_dirs,
-                             search_for_ssl_incs_in
-                             )
+        search_for_ssl_incs_in = [ '%s/include' % os.environ.get("OPENSSL_ROOT", "/notfound"),
+                                   '%s/include' % os.environ.get("ALIEN_RUNTIME_ROOT", "/notfound"),
+                                   '/usr/local/ssl/include',
+                                   '/usr/contrib/ssl/include/' ]
+        ssl_incs = find_file('openssl/ssl.h',
+                             inc_dirs,
+                             search_for_ssl_incs_in,
+                             prefer_custom=True)
         if ssl_incs is not None:
             krb5_h = find_file('krb5.h', inc_dirs,
                                ['/usr/kerberos/include'])
